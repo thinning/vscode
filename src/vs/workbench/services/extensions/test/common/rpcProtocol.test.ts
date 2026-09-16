@@ -3,15 +3,19 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { CancellationToken, CancellationTokenSource } from 'vs/base/common/cancellation';
-import { Emitter, Event } from 'vs/base/common/event';
-import { IMessagePassingProtocol } from 'vs/base/parts/ipc/common/ipc';
-import { ProxyIdentifier } from 'vs/workbench/services/extensions/common/proxyIdentifier';
-import { RPCProtocol } from 'vs/workbench/services/extensions/common/rpcProtocol';
-import { VSBuffer } from 'vs/base/common/buffer';
+import assert from 'assert';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
+import { Emitter, Event } from '../../../../../base/common/event.js';
+import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { IMessagePassingProtocol } from '../../../../../base/parts/ipc/common/ipc.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { ProxyIdentifier, SerializableObjectWithBuffers } from '../../common/proxyIdentifier.js';
+import { RPCProtocol } from '../../common/rpcProtocol.js';
 
 suite('RPCProtocol', () => {
+
+	let disposables: DisposableStore;
 
 	class MessagePassingProtocol implements IMessagePassingProtocol {
 		private _pair?: MessagePassingProtocol;
@@ -32,6 +36,7 @@ suite('RPCProtocol', () => {
 
 	let delegate: (a1: any, a2: any) => any;
 	let bProxy: BClass;
+	let bProtocol: RPCProtocol;
 	class BClass {
 		$m(a1: any, a2: any): Promise<any> {
 			return Promise.resolve(delegate.call(null, a1, a2));
@@ -39,24 +44,32 @@ suite('RPCProtocol', () => {
 	}
 
 	setup(() => {
-		let a_protocol = new MessagePassingProtocol();
-		let b_protocol = new MessagePassingProtocol();
+		disposables = new DisposableStore();
+
+		const a_protocol = new MessagePassingProtocol();
+		const b_protocol = new MessagePassingProtocol();
 		a_protocol.setPair(b_protocol);
 		b_protocol.setPair(a_protocol);
 
-		let A = new RPCProtocol(a_protocol);
-		let B = new RPCProtocol(b_protocol);
+		const A = disposables.add(new RPCProtocol(a_protocol));
+		bProtocol = disposables.add(new RPCProtocol(b_protocol));
 
-		const bIdentifier = new ProxyIdentifier<BClass>(false, 'bb');
+		const bIdentifier = new ProxyIdentifier<BClass>('bb');
 		const bInstance = new BClass();
-		B.set(bIdentifier, bInstance);
+		bProtocol.set(bIdentifier, bInstance);
 		bProxy = A.getProxy(bIdentifier);
 	});
+
+	teardown(() => {
+		disposables.dispose();
+	});
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('simple call', function (done) {
 		delegate = (a1: number, a2: number) => a1 + a2;
 		bProxy.$m(4, 1).then((res: number) => {
-			assert.equal(res, 5);
+			assert.strictEqual(res, 5);
 			done(null);
 		}, done);
 	});
@@ -64,7 +77,7 @@ suite('RPCProtocol', () => {
 	test('simple call without result', function (done) {
 		delegate = (a1: number, a2: number) => { };
 		bProxy.$m(4, 1).then((res: number) => {
-			assert.equal(res, undefined);
+			assert.strictEqual(res, undefined);
 			done(null);
 		}, done);
 	});
@@ -74,20 +87,20 @@ suite('RPCProtocol', () => {
 			assert.ok(a1 instanceof VSBuffer);
 			return a1.buffer[a2];
 		};
-		let b = VSBuffer.alloc(4);
+		const b = VSBuffer.alloc(4);
 		b.buffer[0] = 1;
 		b.buffer[1] = 2;
 		b.buffer[2] = 3;
 		b.buffer[3] = 4;
 		bProxy.$m(b, 2).then((res: number) => {
-			assert.equal(res, 3);
+			assert.strictEqual(res, 3);
 			done(null);
 		}, done);
 	});
 
 	test('returning a buffer', function (done) {
 		delegate = (a1: number, a2: number) => {
-			let b = VSBuffer.alloc(4);
+			const b = VSBuffer.alloc(4);
 			b.buffer[0] = 1;
 			b.buffer[1] = 2;
 			b.buffer[2] = 3;
@@ -96,17 +109,17 @@ suite('RPCProtocol', () => {
 		};
 		bProxy.$m(4, 1).then((res: VSBuffer) => {
 			assert.ok(res instanceof VSBuffer);
-			assert.equal(res.buffer[0], 1);
-			assert.equal(res.buffer[1], 2);
-			assert.equal(res.buffer[2], 3);
-			assert.equal(res.buffer[3], 4);
+			assert.strictEqual(res.buffer[0], 1);
+			assert.strictEqual(res.buffer[1], 2);
+			assert.strictEqual(res.buffer[2], 3);
+			assert.strictEqual(res.buffer[3], 4);
 			done(null);
 		}, done);
 	});
 
 	test('cancelling a call via CancellationToken before', function (done) {
 		delegate = (a1: number, a2: number) => a1 + a2;
-		let p = bProxy.$m(4, CancellationToken.Cancelled);
+		const p = bProxy.$m(4, CancellationToken.Cancelled);
 		p.then((res: number) => {
 			assert.fail('should not receive result');
 		}, (err) => {
@@ -121,7 +134,7 @@ suite('RPCProtocol', () => {
 			return a1 + 1;
 		};
 		bProxy.$m(4, CancellationToken.None).then((res: number) => {
-			assert.equal(res, 5);
+			assert.strictEqual(res, 5);
 			done(null);
 		}, done);
 	});
@@ -130,19 +143,56 @@ suite('RPCProtocol', () => {
 		// this is an implementation which, when cancellation is triggered, will return 7
 		delegate = (a1: number, token: CancellationToken) => {
 			return new Promise((resolve, reject) => {
-				token.onCancellationRequested((e) => {
+				const disposable = token.onCancellationRequested((e) => {
+					disposable.dispose();
 					resolve(7);
 				});
 			});
 		};
-		let tokenSource = new CancellationTokenSource();
-		let p = bProxy.$m(4, tokenSource.token);
+		const tokenSource = new CancellationTokenSource();
+		const p = bProxy.$m(4, tokenSource.token);
 		p.then((res: number) => {
-			assert.equal(res, 7);
+			assert.strictEqual(res, 7);
 		}, (err) => {
 			assert.fail('should not receive error');
 		}).finally(done);
 		tokenSource.cancel();
+	});
+
+	test('releases cancellation handler when the invoked call does not settle', async function () {
+		let resolveRemoteToken!: (token: CancellationToken) => void;
+		const remoteToken = new Promise<CancellationToken>(resolve => resolveRemoteToken = resolve);
+		delegate = (_a1: number, token: CancellationToken) => {
+			resolveRemoteToken(token);
+			return new Promise(() => { });
+		};
+
+		const tokenSource = disposables.add(new CancellationTokenSource());
+		void bProxy.$m(4, tokenSource.token);
+		const token = await remoteToken;
+		const cancellationRequested = new Promise<void>(resolve => {
+			disposables.add(token.onCancellationRequested(() => resolve()));
+		});
+		tokenSource.cancel();
+		await cancellationRequested;
+
+		const cancelInvokedHandlers = Reflect.get(bProtocol, '_cancelInvokedHandlers') as Record<string, () => void>;
+		assert.deepStrictEqual(Object.keys(cancelInvokedHandlers), []);
+	});
+
+	test('does not track uncancellable calls that do not settle', async function () {
+		let resolveInvoked!: () => void;
+		const invoked = new Promise<void>(resolve => resolveInvoked = resolve);
+		delegate = () => {
+			resolveInvoked();
+			return new Promise(() => { });
+		};
+
+		void bProxy.$m(4, 1);
+		await invoked;
+
+		const cancelInvokedHandlers = Reflect.get(bProtocol, '_cancelInvokedHandlers') as Record<string, () => void>;
+		assert.deepStrictEqual(Object.keys(cancelInvokedHandlers), []);
 	});
 
 	test('throwing an error', function (done) {
@@ -152,7 +202,7 @@ suite('RPCProtocol', () => {
 		bProxy.$m(4, 1).then((res) => {
 			assert.fail('unexpected');
 		}, (err) => {
-			assert.equal(err.message, 'nope');
+			assert.strictEqual(err.message, 'nope');
 		}).finally(done);
 	});
 
@@ -163,18 +213,19 @@ suite('RPCProtocol', () => {
 		bProxy.$m(4, 1).then((res) => {
 			assert.fail('unexpected');
 		}, (err) => {
-			assert.equal(err, undefined);
+			assert.strictEqual(err, undefined);
 		}).finally(done);
 	});
 
 	test('issue #60450: Converting circular structure to JSON', function (done) {
 		delegate = (a1: number, a2: number) => {
-			let circular = <any>{};
+			// eslint-disable-next-line local/code-no-any-casts
+			const circular = <any>{};
 			circular.self = circular;
 			return circular;
 		};
 		bProxy.$m(4, 1).then((res) => {
-			assert.equal(res, null);
+			assert.strictEqual(res, null);
 		}, (err) => {
 			assert.fail('unexpected');
 		}).finally(done);
@@ -188,27 +239,55 @@ suite('RPCProtocol', () => {
 		bProxy.$m(4, 1).then((res) => {
 			assert.fail('unexpected');
 		}, (err) => {
-			assert.equal(err.what, 'what');
+			assert.strictEqual(err.what, 'what');
 		}).finally(done);
 	});
 
 	test('undefined arguments arrive as null', function () {
 		delegate = (a1: any, a2: any) => {
-			assert.equal(typeof a1, 'undefined');
-			assert.equal(a2, null);
+			assert.strictEqual(typeof a1, 'undefined');
+			assert.strictEqual(a2, null);
 			return 7;
 		};
 		return bProxy.$m(undefined, null).then((res) => {
-			assert.equal(res, 7);
+			assert.strictEqual(res, 7);
 		});
 	});
 
 	test('issue #81424: SerializeRequest should throw if an argument can not be serialized', () => {
-		let badObject = {};
+		const badObject = {};
+		// eslint-disable-next-line local/code-no-any-casts
 		(<any>badObject).loop = badObject;
 
 		assert.throws(() => {
 			bProxy.$m(badObject, '2');
 		});
+	});
+
+	test('SerializableObjectWithBuffers is correctly transfered', function (done) {
+		delegate = (a1: SerializableObjectWithBuffers<{ string: string; buff: VSBuffer }>, a2: number) => {
+			return new SerializableObjectWithBuffers({ string: a1.value.string + ' world', buff: a1.value.buff });
+		};
+
+		const b = VSBuffer.alloc(4);
+		b.buffer[0] = 1;
+		b.buffer[1] = 2;
+		b.buffer[2] = 3;
+		b.buffer[3] = 4;
+
+		bProxy.$m(new SerializableObjectWithBuffers({ string: 'hello', buff: b }), undefined).then((res: SerializableObjectWithBuffers<any>) => {
+			assert.ok(res instanceof SerializableObjectWithBuffers);
+			assert.strictEqual(res.value.string, 'hello world');
+
+			assert.ok(res.value.buff instanceof VSBuffer);
+
+			const bufferValues = Array.from(res.value.buff.buffer);
+
+			assert.strictEqual(bufferValues[0], 1);
+			assert.strictEqual(bufferValues[1], 2);
+			assert.strictEqual(bufferValues[2], 3);
+			assert.strictEqual(bufferValues[3], 4);
+			done(null);
+		}, done);
 	});
 });

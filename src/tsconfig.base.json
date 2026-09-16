@@ -1,24 +1,31 @@
 {
 	"compilerOptions": {
-		"module": "amd",
-		"moduleResolution": "node",
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"moduleDetection": "legacy",
 		"experimentalDecorators": true,
 		"noImplicitReturns": true,
+		"noImplicitOverride": true,
 		"noUnusedLocals": true,
+		"noUncheckedSideEffectImports": true,
 		"allowUnreachableCode": false,
 		"strict": true,
+		"exactOptionalPropertyTypes": false,
+		"useUnknownInCatchVariables": false,
 		"forceConsistentCasingInFileNames": true,
-		"baseUrl": ".",
+		"target": "ES2024",
+		"useDefineForClassFields": false,
 		"paths": {
-			"vs/*": [
-				"./vs/*"
+			"electron": [
+				"../.build/typings/electron.d.ts"
+			],
+			"electron/*": [
+				"../.build/typings/electron.d.ts"
 			]
 		},
 		"lib": [
-			"ES2015",
-			"ES2016.Array.Include",
-			"ES2017.String",
-			"ES2018.Promise",
+			"ES2024",
+			"ESNext.Disposable",
 			"DOM",
 			"DOM.Iterable",
 			"WebWorker.ImportScripts"

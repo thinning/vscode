@@ -3,137 +3,164 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { Part } from 'vs/workbench/browser/part';
-import * as Types from 'vs/base/common/types';
-import { TestThemeService } from 'vs/platform/theme/test/common/testThemeService';
-import { append, $, hide } from 'vs/base/browser/dom';
-import { TestLayoutService } from 'vs/workbench/test/browser/workbenchTestServices';
-import { StorageScope, StorageTarget } from 'vs/platform/storage/common/storage';
-import { TestStorageService } from 'vs/workbench/test/common/workbenchTestServices';
-
-class SimplePart extends Part {
-
-	minimumWidth: number = 50;
-	maximumWidth: number = 50;
-	minimumHeight: number = 50;
-	maximumHeight: number = 50;
-
-	layout(width: number, height: number): void {
-		throw new Error('Method not implemented.');
-	}
-
-	toJSON(): object {
-		throw new Error('Method not implemented.');
-	}
-}
-
-class MyPart extends SimplePart {
-
-	constructor(private expectedParent: HTMLElement) {
-		super('myPart', { hasTitle: true }, new TestThemeService(), new TestStorageService(), new TestLayoutService());
-	}
-
-	createTitleArea(parent: HTMLElement): HTMLElement {
-		assert.strictEqual(parent, this.expectedParent);
-		return super.createTitleArea(parent)!;
-	}
-
-	createContentArea(parent: HTMLElement): HTMLElement {
-		assert.strictEqual(parent, this.expectedParent);
-		return super.createContentArea(parent)!;
-	}
-
-	getMemento(scope: StorageScope, target: StorageTarget) {
-		return super.getMemento(scope, target);
-	}
-
-	saveState(): void {
-		return super.saveState();
-	}
-}
-
-class MyPart2 extends SimplePart {
-
-	constructor() {
-		super('myPart2', { hasTitle: true }, new TestThemeService(), new TestStorageService(), new TestLayoutService());
-	}
-
-	createTitleArea(parent: HTMLElement): HTMLElement {
-		const titleContainer = append(parent, $('div'));
-		const titleLabel = append(titleContainer, $('span'));
-		titleLabel.id = 'myPart.title';
-		titleLabel.innerText = 'Title';
-
-		return titleContainer;
-	}
-
-	createContentArea(parent: HTMLElement): HTMLElement {
-		const contentContainer = append(parent, $('div'));
-		const contentSpan = append(contentContainer, $('span'));
-		contentSpan.id = 'myPart.content';
-		contentSpan.innerText = 'Content';
-
-		return contentContainer;
-	}
-}
-
-class MyPart3 extends SimplePart {
-
-	constructor() {
-		super('myPart2', { hasTitle: false }, new TestThemeService(), new TestStorageService(), new TestLayoutService());
-	}
-
-	createTitleArea(parent: HTMLElement): HTMLElement {
-		return null!;
-	}
-
-	createContentArea(parent: HTMLElement): HTMLElement {
-		const contentContainer = append(parent, $('div'));
-		const contentSpan = append(contentContainer, $('span'));
-		contentSpan.id = 'myPart.content';
-		contentSpan.innerText = 'Content';
-
-		return contentContainer;
-	}
-}
+import assert from 'assert';
+import { Part } from '../../browser/part.js';
+import { isEmptyObject } from '../../../base/common/types.js';
+import { TestThemeService } from '../../../platform/theme/test/common/testThemeService.js';
+import { append, $, Dimension, hide } from '../../../base/browser/dom.js';
+import { TestLayoutService } from './workbenchTestServices.js';
+import { StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
+import { TestStorageService } from '../common/workbenchTestServices.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../base/test/common/utils.js';
+import { DisposableStore } from '../../../base/common/lifecycle.js';
+import { mainWindow } from '../../../base/browser/window.js';
 
 suite('Workbench parts', () => {
+
+	const disposables = new DisposableStore();
+
+	class SimplePart extends Part {
+
+		minimumWidth: number = 50;
+		maximumWidth: number = 50;
+		minimumHeight: number = 50;
+		maximumHeight: number = 50;
+
+		override layout(width: number, height: number): void {
+			throw new Error('Method not implemented.');
+		}
+
+		toJSON(): object {
+			throw new Error('Method not implemented.');
+		}
+	}
+
+	class MyPart extends SimplePart {
+
+		constructor(private expectedParent: HTMLElement) {
+			super('myPart', { hasTitle: true }, new TestThemeService(), disposables.add(new TestStorageService()), new TestLayoutService());
+		}
+
+		protected override createTitleArea(parent: HTMLElement): HTMLElement {
+			assert.strictEqual(parent, this.expectedParent);
+			return super.createTitleArea(parent)!;
+		}
+
+		protected override createContentArea(parent: HTMLElement): HTMLElement {
+			assert.strictEqual(parent, this.expectedParent);
+			return super.createContentArea(parent)!;
+		}
+
+		testGetMemento(scope: StorageScope, target: StorageTarget) {
+			return super.getMemento(scope, target);
+		}
+
+		testSaveState(): void {
+			return super.saveState();
+		}
+	}
+
+	class MyPart2 extends SimplePart {
+
+		constructor(layoutService = new TestLayoutService()) {
+			super('myPart2', { hasTitle: true }, new TestThemeService(), disposables.add(new TestStorageService()), layoutService);
+		}
+
+		protected override createTitleArea(parent: HTMLElement): HTMLElement {
+			const titleContainer = append(parent, $('div'));
+			const titleLabel = append(titleContainer, $('span'));
+			titleLabel.id = 'myPart.title';
+			titleLabel.innerText = 'Title';
+
+			return titleContainer;
+		}
+
+		protected override createContentArea(parent: HTMLElement): HTMLElement {
+			const contentContainer = append(parent, $('div'));
+			const contentSpan = append(contentContainer, $('span'));
+			contentSpan.id = 'myPart.content';
+			contentSpan.innerText = 'Content';
+
+			return contentContainer;
+		}
+
+		testSetHeaderArea(headerContainer: HTMLElement): void {
+			this.setHeaderArea(headerContainer);
+		}
+
+		testSetFooterArea(footerContainer: HTMLElement): void {
+			this.setFooterArea(footerContainer);
+		}
+
+		testLayoutContents(width: number, height: number) {
+			return this.layoutContents(width, height);
+		}
+	}
+
+	class ModernUITestLayoutService extends TestLayoutService {
+		modernUI = false;
+		modernUICompact = false;
+		override isFloatingPanelsEnabled(): boolean { return this.modernUI; }
+		override isModernUICompact(): boolean { return this.modernUICompact; }
+	}
+
+	class MyPart3 extends SimplePart {
+
+		constructor() {
+			super('myPart2', { hasTitle: false }, new TestThemeService(), disposables.add(new TestStorageService()), new TestLayoutService());
+		}
+
+		protected override createTitleArea(parent: HTMLElement): HTMLElement {
+			return null!;
+		}
+
+		protected override createContentArea(parent: HTMLElement): HTMLElement {
+			const contentContainer = append(parent, $('div'));
+			const contentSpan = append(contentContainer, $('span'));
+			contentSpan.id = 'myPart.content';
+			contentSpan.innerText = 'Content';
+
+			return contentContainer;
+		}
+	}
+
 	let fixture: HTMLElement;
-	let fixtureId = 'workbench-part-fixture';
+	const fixtureId = 'workbench-part-fixture';
 
 	setup(() => {
 		fixture = document.createElement('div');
 		fixture.id = fixtureId;
-		document.body.appendChild(fixture);
+		mainWindow.document.body.appendChild(fixture);
 	});
 
 	teardown(() => {
-		document.body.removeChild(fixture);
+		fixture.remove();
+		disposables.clear();
 	});
 
 	test('Creation', () => {
-		let b = document.createElement('div');
-		document.getElementById(fixtureId)!.appendChild(b);
+		const b = document.createElement('div');
+		mainWindow.document.getElementById(fixtureId)!.appendChild(b);
 		hide(b);
 
-		let part = new MyPart(b);
+		let part = disposables.add(new MyPart(b));
 		part.create(b);
 
 		assert.strictEqual(part.getId(), 'myPart');
 
 		// Memento
-		let memento = part.getMemento(StorageScope.GLOBAL, StorageTarget.MACHINE) as any;
+		// eslint-disable-next-line local/code-no-any-casts
+		let memento = part.testGetMemento(StorageScope.PROFILE, StorageTarget.MACHINE) as any;
 		assert(memento);
 		memento.foo = 'bar';
 		memento.bar = [1, 2, 3];
 
-		part.saveState();
+		part.testSaveState();
 
 		// Re-Create to assert memento contents
-		part = new MyPart(b);
+		part = disposables.add(new MyPart(b));
 
-		memento = part.getMemento(StorageScope.GLOBAL, StorageTarget.MACHINE);
+		memento = part.testGetMemento(StorageScope.PROFILE, StorageTarget.MACHINE);
 		assert(memento);
 		assert.strictEqual(memento.foo, 'bar');
 		assert.strictEqual(memento.bar.length, 3);
@@ -142,34 +169,71 @@ suite('Workbench parts', () => {
 		delete memento.foo;
 		delete memento.bar;
 
-		part.saveState();
-		part = new MyPart(b);
-		memento = part.getMemento(StorageScope.GLOBAL, StorageTarget.MACHINE);
+		part.testSaveState();
+		part = disposables.add(new MyPart(b));
+		memento = part.testGetMemento(StorageScope.PROFILE, StorageTarget.MACHINE);
 		assert(memento);
-		assert.strictEqual(Types.isEmptyObject(memento), true);
+		assert.strictEqual(isEmptyObject(memento), true);
 	});
 
 	test('Part Layout with Title and Content', function () {
-		let b = document.createElement('div');
-		document.getElementById(fixtureId)!.appendChild(b);
+		const b = document.createElement('div');
+		mainWindow.document.getElementById(fixtureId)!.appendChild(b);
 		hide(b);
 
-		let part = new MyPart2();
+		const part = disposables.add(new MyPart2());
 		part.create(b);
 
-		assert(document.getElementById('myPart.title'));
-		assert(document.getElementById('myPart.content'));
+		assert(mainWindow.document.getElementById('myPart.title'));
+		assert(mainWindow.document.getElementById('myPart.content'));
+	});
+
+	test('Part Layout preserves Modern UI chrome across densities', () => {
+		const layoutService = new ModernUITestLayoutService();
+		const part = disposables.add(new MyPart2(layoutService));
+		part.create(fixture);
+		part.testSetHeaderArea(document.createElement('div'));
+		part.testSetFooterArea(document.createElement('div'));
+
+		const classicLayout = part.testLayoutContents(100, 200);
+		layoutService.modernUI = true;
+		const modernUILayout = part.testLayoutContents(100, 200);
+		layoutService.modernUICompact = true;
+		const compactModernUILayout = part.testLayoutContents(100, 200);
+
+		assert.deepStrictEqual({ classicLayout, modernUILayout, compactModernUILayout }, {
+			classicLayout: {
+				headerSize: new Dimension(100, 35),
+				titleSize: new Dimension(100, 35),
+				contentSize: new Dimension(100, 95),
+				footerSize: new Dimension(100, 35),
+			},
+			modernUILayout: {
+				headerSize: new Dimension(100, 32),
+				titleSize: new Dimension(100, 32),
+				contentSize: new Dimension(100, 104),
+				footerSize: new Dimension(100, 32),
+			},
+			compactModernUILayout: {
+				headerSize: new Dimension(100, 32),
+				titleSize: new Dimension(100, 32),
+				contentSize: new Dimension(100, 104),
+				footerSize: new Dimension(100, 32),
+			},
+		});
 	});
 
 	test('Part Layout with Content only', function () {
-		let b = document.createElement('div');
-		document.getElementById(fixtureId)!.appendChild(b);
+		const b = document.createElement('div');
+		mainWindow.document.getElementById(fixtureId)!.appendChild(b);
 		hide(b);
 
-		let part = new MyPart3();
+		const part = disposables.add(new MyPart3());
 		part.create(b);
 
-		assert(!document.getElementById('myPart.title'));
-		assert(document.getElementById('myPart.content'));
+		assert(!mainWindow.document.getElementById('myPart.title'));
+		assert(mainWindow.document.getElementById('myPart.content'));
 	});
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 });
